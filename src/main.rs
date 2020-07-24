@@ -11,15 +11,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let body = c
-        .get("https://www.economist.com/finance-and-economics/2020/05/30/the-pandemic-could-lead-statisticians-to-change-how-they-estimate-gdp")
-        //.get("https://www.economist.com/printedition/2020-05-30")
+        //.get("https://www.economist.com/finance-and-economics/2020/05/30/the-pandemic-could-lead-statisticians-to-change-how-they-estimate-gdp")
+        .get("https://www.economist.com/printedition/2020-05-30")
         .send()
         .await?
         .text()
         .await?;
-    //dbg!(body);
-    parse(body.clone());
+
+    //parse(body.clone());
+    get_table(body.clone());
     Ok(())
+}
+
+fn get_table(body : String) {
+    let html = body.as_str();
+    let css_selector = ".list__item";
+
+    let doc = kuchiki::parse_html().one(html);
+
+    for list_item in doc.select(css_selector).unwrap() {
+        let list_item_node= list_item.as_node();
+        let mut title = String::new();
+        list_item_node.select(".list__title").unwrap().for_each(|t|{
+            let text = t.text_contents().clone();
+            title.push_str(text.as_str());
+        });
+        dbg!(title);
+        let mut item_arr = Vec::new();
+        list_item_node.select("a").unwrap().for_each(|t|{
+            let text = t.text_contents().clone();
+            let link = t.attributes.borrow().get("href").unwrap().to_string();
+            item_arr.push(text.clone());
+            item_arr.push(link.to_string());
+        });
+        dbg!(item_arr);
+    }
 }
 
 fn parse(body: String) {
@@ -44,6 +70,6 @@ fn parse(body: String) {
             }
         });
 
-        println!("{}", content);
+        println!("{}\n", content);
     }
 }
