@@ -32,48 +32,162 @@ func main() {
 	err = os.MkdirAll(date, 0755)
 	fmt.Println(err)
 
+	// prepare dirs for sections
 	for _, sec := range sections {
 		// dir for markdown files
-		err = os.MkdirAll(date+"/"+sec.title, 0755)
+		err = os.MkdirAll(getMarkdownFileDir(date, sec.title), 0755)
 		if err != nil {
 			fmt.Println(err)
 		}
 
 		// dir for image files
-		err = os.MkdirAll(date+"/"+sec.title+"/images", 0755)
+		err = os.MkdirAll(getImageDir(date, sec.title), 0755)
 		if err != nil {
 			fmt.Println(err)
 		}
 	}
+
+	// download articles && images
+	for _, sec := range sections {
+		for _, articleURL := range sec.articleLinks {
+			// economist.com + /2020-07-05/{title}
+			fullURL := economistBaseURL + articleURL
+			article := fetchArticleContent(fullURL)
+			downloadArticleImages(getImageDir(date, sec.title), article.imageURLs)
+
+			f, err := os.Create(getMarkdownFilePath(date, sec.title, extractArticleTitleFromURL(articleURL)))
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			defer f.Close()
+
+			_, err = f.WriteString(article.contentHTML)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+		}
+	}
 }
 
-func fetchArticleContent() string {
+func extractArticleTitleFromURL(articleURL string) string {
+	var arr = strings.Split(articleURL, "/")
+	lastIdx := len(arr) - 1
+	return arr[lastIdx]
+}
+
+func getMarkdownFilePath(date, sectionTitle, articleTitle string) string {
+	return date + "/" + sectionTitle + "/" + articleTitle
+}
+
+func getMarkdownFileDir(date, sectionTitle string) string {
+	return date + "/" + sectionTitle
+}
+
+func getImageDir(date, sectionTitle string) string {
+	return date + "/" + sectionTitle + "/images"
+}
+
+// TODO
+func convertHTMLToMarkdown(htmlContent string) string {
 	return ""
 }
 
-func downloadArticleImages(articleContent string) error {
-	imageURLs := []string{}
-	println(imageURLs)
+type article struct {
+	// header part
+	headline    string
+	subHeadline string
+	description string
+
+	// body part
+	meta        string
+	contentHTML string
+	paragraphs  []string
+
+	// images
+	leadImage string
+	imageURLs []string
+}
+
+// TODO
+// return content && image urls
+func fetchArticleContent(url string) article {
+	articleCollector := colly.NewCollector()
+	var (
+		headline    string
+		subHeadline string
+		leadImgURL  string
+		description string
+		meta        string
+		paragraphs  []string
+	)
+
+	// header part
+	// ds-layout-grid ds-layout-grid--edged layout-article-header
+	articleCollector.OnHTML(".layout-article-header", func(e *colly.HTMLElement) {
+		headline = e.ChildText(".article__headline")
+		subHeadline = e.ChildText(".article__subheadline")
+		leadImgURL = e.ChildAttr("img", "srcset")
+		description = e.ChildText(".article__description")
+	})
+
+	// body part
+	// ds-layout-grid ds-layout-grid--edged layout-article-body
+	articleCollector.OnHTML(".layout-article-body", func(e *colly.HTMLElement) {
+		meta = e.ChildText(".layout-article-meta")
+		e.ForEach(".article__body-text, img", func(idx int, internal *colly.HTMLElement) {
+			if internal.Name == "img" {
+				// TODO, change this name, and append this url to the image download list
+				imageContent := ""
+				println(internal.Attr("srcset"))
+				paragraphs = append(paragraphs, imageContent)
+			} else {
+				paragraphs = append(paragraphs, internal.Text)
+			}
+
+		})
+	})
+
+	err := articleCollector.Visit(url)
+	if err != nil {
+		fmt.Println(err)
+		return article{}
+	}
+
+	println("visit url", url, headline, subHeadline, leadImgURL)
+
+	return article{
+		headline:    headline,
+		subHeadline: subHeadline,
+		description: description,
+
+		meta:       meta,
+		paragraphs: paragraphs,
+	}
+}
+
+// TODO
+func downloadArticleImages(imageDir string, imageURLs []string) error {
+	// extract image urls from article content
 	return nil
 }
 
 func getSections() ([]section, string) {
-	collector := colly.NewCollector(
-		colly.AllowedDomains(economistDomain),
-	)
+	sectionCollector := colly.NewCollector()
 
 	urlSuffix := getLatestWeeklyEditionURL()
 	fmt.Println("[crawl] the latest edition is ", urlSuffix)
 
 	var sections []section
-	collector.OnHTML(".layout-weekly-edition-section", func(e *colly.HTMLElement) {
+	sectionCollector.OnHTML(".layout-weekly-edition-section", func(e *colly.HTMLElement) {
 		title := e.ChildText(".ds-section-headline")
 		children := e.ChildAttrs("a", "href")
 		sections = append(sections, section{title: title, articleLinks: children})
 	})
 
 	rootPath := economistBaseURL + urlSuffix
-	err := collector.Visit(rootPath)
+	err := sectionCollector.Visit(rootPath)
 	if err != nil {
 		fmt.Println(err)
 	}
