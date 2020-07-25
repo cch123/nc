@@ -26,9 +26,6 @@ func main() {
 	// step 2 : get sections from weekly front page
 	var sections, coverURL = getSectionsAndCoverByURL(economistBaseURL + urlSuffix)
 
-	// step 2.1 : download cover image
-	downloadArticleImages(date, coverURL)
-
 	/*
 		// log for this ?
 		for _, sec := range sections {
@@ -44,7 +41,11 @@ func main() {
 	err = os.MkdirAll(date, 0755)
 	fmt.Println("[mkdir]", err)
 
-	// step 3.2 : prepare dirs for sections
+	// step 3.2 : download cover image
+	fmt.Println("[cover download]", coverURL)
+	downloadArticleImages(date, coverURL)
+
+	// step 3.3 : prepare dirs for sections
 	for _, sec := range sections {
 		// dir for markdown files
 		err = os.MkdirAll(getMarkdownFileDir(date, sec.title), 0755)
@@ -237,40 +238,42 @@ func getImageNameFromImageURL(url string) string {
 
 func downloadArticleImages(imageDir string, imageURLs ...string) {
 	// extract image urls from article content
+	var downloadFunc = func(url string) {
+		// www.economist.com/sites/default/files/images/print-edition/20200725_WWC588.png
+		arr := strings.Split(url, "/")
+		fileName := arr[len(arr)-1]
+		if fileName == "" {
+			return
+		}
+		f, err := os.Create(imageDir + "/" + fileName)
+		if err != nil {
+			fmt.Println("[create image file] failed to create img file : ", url, err)
+			return
+		}
+		defer f.Close()
+
+		resp, err := http.Get(url)
+		if err != nil {
+			fmt.Println("[download image] failed to download img : ", url, err)
+			return
+		}
+		defer resp.Body.Close()
+
+		imgBytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println("[download image] read img resp failed: ", url, err)
+			return
+		}
+
+		_, err = f.Write(imgBytes)
+		if err != nil {
+			fmt.Println("[write image] write img to file failed: ", url, err)
+			return
+		}
+	}
+
 	for _, url := range imageURLs {
-		func() {
-			// www.economist.com/sites/default/files/images/print-edition/20200725_WWC588.png
-			arr := strings.Split(url, "/")
-			fileName := arr[len(arr)-1]
-			if fileName == "" {
-				return
-			}
-			f, err := os.Create(imageDir + "/" + fileName)
-			if err != nil {
-				fmt.Println("[create image file] failed to create img file : ", url, err)
-				return
-			}
-			defer f.Close()
-
-			resp, err := http.Get(url)
-			if err != nil {
-				fmt.Println("[download image] failed to download img : ", url, err)
-				return
-			}
-			defer resp.Body.Close()
-
-			imgBytes, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				fmt.Println("[download image] read img resp failed: ", url, err)
-				return
-			}
-
-			_, err = f.Write(imgBytes)
-			if err != nil {
-				fmt.Println("[write image] write img to file failed: ", url, err)
-				return
-			}
-		}()
+		downloadFunc(url)
 	}
 }
 
